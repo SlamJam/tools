@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+fswatch() {
+  local DIR=${1:?}
+  command fswatch -d -r --allow-overflow --one-per-batch "${DIR}"
+  return $?
+}
+
+rsync() {
+  local SOURCE=${1:?}
+  local DEST=${2:?}
+  command rsync -az --delete --delete-excluded -u ${RSYNC_EXCLUDE[@]} "${SOURCE%/}" "${DEST%/}"
+  return $?
+}
+
+SOURCE="$(cd ${1:-.} && pwd)"
+echo "Check folder" ${SOURCE}
+test -d "$SOURCE" || { echo "Usage: $0 source target - source must be a directory" 1>&2; exit 1; }
+
+test -f "$SOURCE/.syncer" || { echo "No .syncer file"; exit 1; }
+source "$SOURCE/.syncer"
+
+test -z "$TARGET" && { echo "Usage: $0 source target - target must be non-empty string" 1>&2; exit 1; }
+echo "Sync to $TARGET"
+
+RSYNC_EXCLUDE=("--exclude=.syncer")
+for exc in "${EXCLUDE-.**}"; do
+  [ -z "$exc" ] && continue
+  RSYNC_EXCLUDE+=("--exclude=$exc")
+done
+
+sync_now() {
+  rsync "${SOURCE}" "${TARGET}"
+}
+
+sync_now
+echo "Watch for changes at ${SOURCE}"
+fswatch "${SOURCE}" | while read num; do
+    echo "$(date +"%Y/%m/%d %H:%M:%S") changed ${num} file(s)"
+    sync_now
+done
